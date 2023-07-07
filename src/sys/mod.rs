@@ -13,6 +13,7 @@
 //!               methods.
 //! * `tcp` and `udp` modules: see the [`crate::net`] module.
 //! * `Waker`: see [`crate::Waker`].
+//! * `WakerRegistrar`: state for `Waker` type.
 
 cfg_os_poll! {
     macro_rules! debug_detail {

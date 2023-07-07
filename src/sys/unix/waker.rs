@@ -4,7 +4,8 @@
 ))]
 mod eventfd {
     use crate::sys::Selector;
-    use crate::{Interest, Token};
+    use crate::sys::WakerRegistrar;
+    use crate::Token;
 
     use std::fs::File;
     use std::io::{self, Read, Write};
@@ -18,6 +19,7 @@ mod eventfd {
     /// reset the count to 0, returning the count.
     #[derive(Debug)]
     pub struct Waker {
+        registrar: WakerRegistrar,
         fd: File,
     }
 
@@ -26,11 +28,13 @@ mod eventfd {
             let fd = syscall!(eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK))?;
             let file = unsafe { File::from_raw_fd(fd) };
 
-            selector.register(fd, token, Interest::READABLE)?;
-            Ok(Waker { fd: file })
+            let registrar = WakerRegistrar::register(selector, fd, token)?;
+            Ok(Waker { registrar, fd: file })
         }
 
         pub fn wake(&self) -> io::Result<()> {
+            self.registrar.prepare_to_wake()?;
+
             let buf: [u8; 8] = 1u64.to_ne_bytes();
             match (&self.fd).write(&buf) {
                 Ok(_) => Ok(()),
@@ -139,6 +143,7 @@ mod pipe {
     /// if writing to it (waking) fails.
     #[derive(Debug)]
     pub struct Waker {
+        registrar: WakerRegistrar,
         sender: File,
         receiver: File,
     }
@@ -150,8 +155,8 @@ mod pipe {
             let sender = unsafe { File::from_raw_fd(fds[1]) };
             let receiver = unsafe { File::from_raw_fd(fds[0]) };
 
-            selector.register(fds[0], token, Interest::READABLE)?;
-            Ok(Waker { sender, receiver })
+            let registrar = WakerRegistrar::register(selector, fds[0], token)?;
+            Ok(Waker { registrar, sender, receiver })
         }
 
         pub fn wake(&self) -> io::Result<()> {
@@ -160,6 +165,8 @@ mod pipe {
             // wakeup on the pipe read side.
             #[cfg(target_os = "illumos")]
             self.empty();
+
+            self.registrar.prepare_to_wake();
 
             match (&self.sender).write(&[1]) {
                 Ok(_) => Ok(()),

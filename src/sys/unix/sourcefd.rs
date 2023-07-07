@@ -98,7 +98,7 @@ impl<'a> event::Source for SourceFd<'a> {
         token: Token,
         interests: Interest,
     ) -> io::Result<()> {
-        registry.selector().register(*self.0, token, interests)
+        registry.selector().register(*self.0, token, interests).map(|_| ())
     }
 
     fn reregister(

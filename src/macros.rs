@@ -69,6 +69,63 @@ macro_rules! cfg_any_os_ext {
     }
 }
 
+/// The current platform supports epoll.
+macro_rules! cfg_epoll_selector {
+    ($($item:item)*) => {
+        $(
+            #[cfg(all(
+                not(mio_unsupported_force_poll_poll),
+                any(
+                    target_os = "android",
+                    target_os = "illumos",
+                    target_os = "linux",
+                    target_os = "redox",
+                )))]
+            $item
+        )*
+    }
+}
+
+macro_rules! cfg_poll_selector {
+    ($($item:item)*) => {
+        $(
+            #[cfg(mio_unsupported_force_poll_poll)]
+            $item
+        )*
+    }
+}
+
+/// The current platform supports kqueue.
+macro_rules! cfg_kqueue_selector {
+    ($($item:item)*) => {
+        $(
+            #[cfg(any(
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "ios",
+                target_os = "macos",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "tvos",
+                target_os = "watchos",
+            ))]
+            $item
+        )*
+    }
+}
+
+macro_rules! cfg_selector_has_fd {
+    ($($item:item)*) => {
+        $(
+            #[cfg(all(
+                unix,
+                not(mio_unsupported_force_poll_poll),
+            ))]
+            $item
+        )*
+    }
+}
+
 macro_rules! trace {
     ($($t:tt)*) => {
         log!(trace, $($t)*)

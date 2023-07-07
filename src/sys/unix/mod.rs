@@ -16,6 +16,7 @@ macro_rules! syscall {
 cfg_os_poll! {
     mod selector;
     pub(crate) use self::selector::{event, Event, Events, Selector};
+    pub(crate) use self::selector::WakerRegistrar;
 
     mod sourcefd;
     pub use self::sourcefd::SourceFd;
@@ -33,25 +34,7 @@ cfg_os_poll! {
     }
 
     cfg_io_source! {
-        use std::io;
-
-        // Both `kqueue` and `epoll` don't need to hold any user space state.
-        pub(crate) struct IoSourceState;
-
-        impl IoSourceState {
-            pub fn new() -> IoSourceState {
-                IoSourceState
-            }
-
-            pub fn do_io<T, F, R>(&self, f: F, io: &T) -> io::Result<R>
-            where
-                F: FnOnce(&T) -> io::Result<R>,
-            {
-                // We don't hold state, so we can just call the function and
-                // return.
-                f(io)
-            }
-        }
+        pub(crate) use self::selector::{IoSourceState};
     }
 
     cfg_os_ext! {

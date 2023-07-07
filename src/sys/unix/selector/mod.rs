@@ -1,42 +1,24 @@
-#[cfg(any(
-    target_os = "android",
-    target_os = "illumos",
-    target_os = "linux",
-    target_os = "redox",
-))]
-mod epoll;
+mod adapters;
+pub(crate) use self::adapters::WakerRegistrar;
 
-#[cfg(any(
-    target_os = "android",
-    target_os = "illumos",
-    target_os = "linux",
-    target_os = "redox",
-))]
-pub(crate) use self::epoll::{event, Event, Events, Selector};
+cfg_io_source! {
+    pub(crate) use self::adapters::IoSourceState;
+}
 
-#[cfg(any(
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "ios",
-    target_os = "macos",
-    target_os = "netbsd",
-    target_os = "openbsd",
-    target_os = "tvos",
-    target_os = "watchos",
-))]
-mod kqueue;
+cfg_epoll_selector! {
+    mod epoll;
+    pub(crate) use self::epoll::{event, Event, Events, Selector};
+}
 
-#[cfg(any(
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "ios",
-    target_os = "macos",
-    target_os = "netbsd",
-    target_os = "openbsd",
-    target_os = "tvos",
-    target_os = "watchos",
-))]
-pub(crate) use self::kqueue::{event, Event, Events, Selector};
+cfg_poll_selector! {
+    mod poll;
+    pub(crate) use self::poll::{event, Event, Events, Selector};
+}
+
+cfg_kqueue_selector! {
+    mod kqueue;
+    pub(crate) use self::kqueue::{event, Event, Events, Selector};
+}
 
 /// Lowest file descriptor used in `Selector::try_clone`.
 ///
