@@ -37,8 +37,6 @@ impl IoSourceState {
     let result = f(io);
 
     if let Err(err) = &result {
-      println!("err={err:?}");
-
       if err.kind() == io::ErrorKind::WouldBlock {
         self.inner.as_ref().map_or(Ok(()), |state| {
           state

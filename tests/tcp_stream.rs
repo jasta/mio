@@ -647,7 +647,6 @@ fn tcp_reset_close_event() {
     loop {
         poll.poll(&mut events, Some(Duration::from_millis(100)))
             .expect("poll failed");
-        println!("Got: {events:?}");
         if events.iter().count() == 0 {
             break;
         }
