@@ -3,5 +3,3 @@
 cfg_io_source! {
     pub(super) mod io_source_state;
 }
-
-pub(super) mod waker_registrar;

@@ -370,6 +370,10 @@ impl Selector {
         self.has_waker.swap(true, Ordering::AcqRel)
     }
 
+    pub(crate) fn install_waker(&self, token: Token) -> io::Result<Waker> {
+        Waker::new(self, token)
+    }
+
     pub(super) fn clone_port(&self) -> Arc<CompletionPort> {
         self.inner.cp.clone()
     }

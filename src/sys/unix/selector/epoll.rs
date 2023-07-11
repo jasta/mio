@@ -6,6 +6,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{cmp, i32, io, ptr};
+use crate::sys::unix::waker_driver::WakerDriver;
 
 /// Unique id for use as `SelectorId`.
 #[cfg(debug_assertions)]
@@ -113,6 +114,10 @@ impl Selector {
         })
     }
 
+    pub(crate) fn install_waker(&self, token: Token) -> io::Result<Waker> {
+        Waker::install(self, token)
+    }
+
     pub fn register(&self, fd: RawFd, token: Token, interests: Interest) -> io::Result<()> {
         let mut event = libc::epoll_event {
             events: interests_to_epoll(interests),
@@ -184,6 +189,29 @@ fn interests_to_epoll(interests: Interest) -> u32 {
     }
 
     kind as u32
+}
+
+#[derive(Debug)]
+pub(crate) struct Waker {
+    driver: WakerDriver,
+}
+
+impl Waker {
+    pub fn install(selector: &Selector, token: Token) -> io::Result<Self> {
+        let driver = WakerDriver::new()?;
+        selector.register(driver.as_raw_fd(), token, Interest::READABLE)?;
+        Ok(Waker { driver })
+    }
+
+    pub fn wake(&self) -> io::Result<()> {
+        // The epoll emulation on some illumos systems currently requires
+        // the pipe buffer to be completely empty for an edge-triggered
+        // wakeup on the pipe read side.
+        #[cfg(target_os = "illumos")]
+        let _ = self.driver.ack();
+
+        self.driver.wake()
+    }
 }
 
 pub type Event = libc::epoll_event;

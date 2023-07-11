@@ -6,6 +6,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{cmp, io, ptr, slice};
+use crate::sys::unix::waker_driver::WakerDriver;
 
 /// Unique id for use as `SelectorId`.
 #[cfg(debug_assertions)]
@@ -217,57 +218,30 @@ impl Selector {
     pub fn register_waker(&self) -> bool {
         self.has_waker.swap(true, Ordering::AcqRel)
     }
+}
 
-    // Used by `Waker`.
-    #[cfg(any(
-        target_os = "freebsd",
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "tvos",
-        target_os = "watchos"
-    ))]
-    pub fn setup_waker(&self, token: Token) -> io::Result<()> {
-        // First attempt to accept user space notifications.
-        let mut kevent = kevent!(
-            0,
-            libc::EVFILT_USER,
-            libc::EV_ADD | libc::EV_CLEAR | libc::EV_RECEIPT,
-            token.0
-        );
+#[derive(Debug)]
+pub(crate) struct Waker {
+    driver: WakerDriver,
+}
 
-        syscall!(kevent(self.kq, &kevent, 1, &mut kevent, 1, ptr::null())).and_then(|_| {
-            if (kevent.flags & libc::EV_ERROR) != 0 && kevent.data != 0 {
-                Err(io::Error::from_raw_os_error(kevent.data as i32))
-            } else {
-                Ok(())
-            }
-        })
+impl Waker {
+    cfg_unix_kevent_waker! {
+        pub fn install(selector: &Selector, token: Token) -> io::Result<Self> {
+            let driver = WakerDriver::new(selector.kq, token)?;
+            Ok(Waker { driver })
+        }
     }
 
-    // Used by `Waker`.
-    #[cfg(any(
-        target_os = "freebsd",
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "tvos",
-        target_os = "watchos"
-    ))]
-    pub fn wake(&self, token: Token) -> io::Result<()> {
-        let mut kevent = kevent!(
-            0,
-            libc::EVFILT_USER,
-            libc::EV_ADD | libc::EV_RECEIPT,
-            token.0
-        );
-        kevent.fflags = libc::NOTE_TRIGGER;
+    cfg_unix_rawfd_waker! {
+        pub fn install(selector: &Selector, token: Token) -> io::Result<Self> {
+            let driver = WakerDriver::new()?;
+            Ok(Waker { driver })
+        }
+    }
 
-        syscall!(kevent(self.kq, &kevent, 1, &mut kevent, 1, ptr::null())).and_then(|_| {
-            if (kevent.flags & libc::EV_ERROR) != 0 && kevent.data != 0 {
-                Err(io::Error::from_raw_os_error(kevent.data as i32))
-            } else {
-                Ok(())
-            }
-        })
+    pub fn wake(&self) -> io::Result<()> {
+        self.driver.wake()
     }
 }
 

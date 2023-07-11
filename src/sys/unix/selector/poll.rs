@@ -14,17 +14,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
+use std::os::fd::AsRawFd;
 use crate::sys::unix::selector::LOWEST_FD;
+use crate::sys::unix::waker_driver::WakerDriver;
 
 /// Unique id for use as `SelectorId`.
 #[cfg(debug_assertions)]
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
-
-#[cfg(target_os = "espidf")]
-type NotifyType = u64;
-
-#[cfg(not(target_os = "espidf"))]
-type NotifyType = u8;
 
 #[derive(Debug)]
 pub struct Selector {
@@ -62,6 +58,10 @@ impl Selector {
         self.state.select(events, timeout)
     }
 
+    pub(crate) fn install_waker(&self, token: Token) -> io::Result<Waker> {
+        Waker::install(self, token)
+    }
+
     pub fn register(&self, fd: RawFd, token: Token, interests: Interest) -> io::Result<()> {
         self.state.register(fd, token, interests)
     }
@@ -93,6 +93,30 @@ cfg_io_source! {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct Waker {
+    selector: Selector,
+    driver: WakerDriver,
+    token: Token,
+}
+
+impl Waker {
+    pub fn install(selector: &Selector, token: Token) -> io::Result<Self> {
+        let driver = WakerDriver::new()?;
+        selector.register(driver.as_raw_fd(), token, Interest::READABLE)?;
+        Ok(Waker {
+            selector: selector.try_clone()?,
+            driver,
+            token,
+        })
+    }
+
+    pub fn wake(&self) -> io::Result<()> {
+        self.selector.reregister(self.driver.as_raw_fd(), self.token, Interest::READABLE)?;
+        self.driver.wake()
+    }
+}
+
 /// Interface to poll.
 #[derive(Debug)]
 struct SelectorState {
@@ -105,15 +129,10 @@ struct SelectorState {
     /// out all removed descriptors after that poll is finished running.
     pending_removal: Mutex<Vec<RawFd>>,
 
-    /// The file descriptor of the read half of the notify pipe. This is also stored as the first
-    /// file descriptor in `fds.poll_fds`.
-    notify_read: RawFd,
-    /// The file descriptor of the write half of the notify pipe.
-    ///
     /// Data is written to this to wake up the current instance of `wait`, which can occur when the
     /// user notifies it (in which case `notified` would have been set) or when an operation needs
     /// to occur (in which case `waiting_operations` would have been incremented).
-    notify_write: RawFd,
+    notify_waker: WakerDriver,
 
     /// The number of operations (`add`, `modify` or `delete`) that are currently waiting on the
     /// mutex to become free. When this is nonzero, `wait` must be suspended until it reaches zero
@@ -135,11 +154,10 @@ struct SelectorState {
 struct Fds {
     /// The list of `pollfds` taken by poll.
     ///
-    /// The first file descriptor is always present and is used to notify the poller. It is also
-    /// stored in `notify_read`.
+    /// The first file descriptor is always present and is used to notify the poller.
     poll_fds: Vec<PollFd>,
     /// The map of each file descriptor to data associated with it. This does not include the file
-    /// descriptors `notify_read` or `notify_write`.
+    /// descriptors created by the internal notify waker.
     fd_data: HashMap<RawFd, FdData>,
 }
 
@@ -173,70 +191,24 @@ struct FdData {
 
 impl SelectorState {
     pub fn new() -> io::Result<SelectorState> {
-        let notify_fds = Self::create_notify_fds()?;
+        let notify_waker = WakerDriver::new()?;
 
         Ok(Self {
             fds: Mutex::new(Fds {
                 poll_fds: vec![PollFd(libc::pollfd {
-                    fd: notify_fds[0],
-                    events: libc::POLLRDNORM,
+                    fd: notify_waker.as_raw_fd(),
+                    events: libc::POLLIN,
                     revents: 0,
                 })],
                 fd_data: HashMap::new(),
             }),
             pending_removal: Mutex::new(Vec::new()),
-            notify_read: notify_fds[0],
-            notify_write: notify_fds[1],
+            notify_waker,
             waiting_operations: AtomicUsize::new(0),
             operations_complete: Condvar::new(),
             #[cfg(debug_assertions)]
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         })
-    }
-
-    fn create_notify_fds() -> io::Result<[libc::c_int; 2]> {
-        let mut notify_fd = [0, 0];
-
-        // Note that the eventfd() implementation in ESP-IDF deviates from the specification in the following ways:
-        // 1) The file descriptor is always in a non-blocking mode, as if EFD_NONBLOCK was passed as a flag;
-        //    passing EFD_NONBLOCK or calling fcntl(.., F_GETFL/F_SETFL) on the eventfd() file descriptor is not supported
-        // 2) It always returns the counter value, even if it is 0. This is contrary to the specification which mandates
-        //    that it should instead fail with EAGAIN
-        //
-        // (1) is not a problem for us, as we want the eventfd() file descriptor to be in a non-blocking mode anyway
-        // (2) is also not a problem, as long as we don't try to read the counter value in an endless loop when we detect being notified
-        #[cfg(target_os = "espidf")]
-        {
-            extern "C" {
-                fn eventfd(initval: libc::c_uint, flags: libc::c_int) -> libc::c_int;
-            }
-
-            let fd = unsafe { eventfd(0, 0) };
-            if fd == -1 {
-                // TODO: Switch back to syscall! once
-                // https://github.com/rust-lang/libc/pull/2864 is published
-                return Err(std::io::ErrorKind::Other.into());
-            }
-
-            notify_fd[0] = fd;
-            notify_fd[1] = fd;
-        }
-
-        #[cfg(not(target_os = "espidf"))]
-        {
-            syscall!(pipe(notify_fd.as_mut_ptr()))?;
-
-            // Put the reading side into non-blocking mode.
-            let notify_read_flags = syscall!(fcntl(notify_fd[0], libc::F_GETFL))?;
-
-            syscall!(fcntl(
-                notify_fd[0],
-                libc::F_SETFL,
-                notify_read_flags | libc::O_NONBLOCK
-            ))?;
-        }
-
-        Ok(notify_fd)
     }
 
     pub fn select(&self, events: &mut Events, timeout: Option<Duration>) -> io::Result<()> {
@@ -269,19 +241,8 @@ impl SelectorState {
             let notified = fds.poll_fds[0].0.revents != 0;
             let num_fd_events = if notified { num_events - 1 } else { num_events };
 
-            // Read all notifications.
             if notified {
-                if self.notify_read != self.notify_write {
-                    // When using the `pipe` syscall, we have to read all accumulated notifications in the pipe.
-                    while syscall!(read(self.notify_read, &mut [0; 64] as *mut _ as *mut _, 64))
-                        .is_ok()
-                    {}
-                } else {
-                    // When using the `eventfd` syscall, it is OK to read just once, so as to clear the counter.
-                    // In fact, reading in a loop will result in an endless loop on the ESP-IDF
-                    // which is not following the specification strictly.
-                    let _ = self.pop_notification();
-                }
+                let _ = self.notify_waker.ack();
             }
 
             // We now check whether this poll was performed with descriptors which were pending
@@ -346,7 +307,8 @@ impl SelectorState {
         token: Token,
         interests: Interest,
     ) -> io::Result<Arc<RegistrationRecord>> {
-        if fd == self.notify_read || fd == self.notify_write {
+        #[cfg(debug_assertions)]
+        if fd == self.notify_waker.as_raw_fd() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
 
@@ -422,13 +384,13 @@ impl SelectorState {
         self.waiting_operations.fetch_add(1, Ordering::SeqCst);
 
         // Wake up the current caller of `wait` if there is one.
-        let sent_notification = self.notify_inner().is_ok();
+        let sent_notification = self.notify_waker.wake().is_ok();
 
         let mut fds = self.fds.lock().unwrap();
 
         // If there was no caller of `wait` our notification was not removed from the pipe.
         if sent_notification {
-            let _ = self.pop_notification();
+            let _ = self.notify_waker.ack();
         }
 
         let res = f(&mut *fds);
@@ -467,36 +429,6 @@ impl SelectorState {
 
             Ok(())
         })
-    }
-
-    /// Wake the current thread that is calling `wait`.
-    fn notify_inner(&self) -> io::Result<()> {
-        syscall!(write(
-            self.notify_write,
-            &(1 as NotifyType) as *const _ as *const _,
-            std::mem::size_of::<NotifyType>()
-        ))?;
-        Ok(())
-    }
-
-    /// Remove a notification created by `notify_inner`.
-    fn pop_notification(&self) -> io::Result<()> {
-        syscall!(read(
-            self.notify_read,
-            &mut [0; std::mem::size_of::<NotifyType>()] as *mut _ as *mut _,
-            std::mem::size_of::<NotifyType>()
-        ))?;
-        Ok(())
-    }
-}
-
-impl Drop for SelectorState {
-    fn drop(&mut self) {
-        let _ = syscall!(close(self.notify_read));
-
-        if self.notify_read != self.notify_write {
-            let _ = syscall!(close(self.notify_write));
-        }
     }
 }
 

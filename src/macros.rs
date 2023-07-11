@@ -114,6 +114,44 @@ macro_rules! cfg_kqueue_selector {
     }
 }
 
+/// The current platform uses a kevent-based Waker
+macro_rules! cfg_unix_kevent_waker {
+    ($($item:item)*) => {
+        $(
+            #[cfg(all(
+                not(mio_unsupported_force_waker_pipe),
+                any(
+                    target_os = "freebsd",
+                    target_os = "ios",
+                    target_os = "macos",
+                    target_os = "tvos",
+                    target_os = "watchos",
+                )
+            ))]
+            $item
+        )*
+    }
+}
+
+/// The current platform uses a rawfd-based waker (eventfd, pipe, etc).  This is
+/// the opposite of kevent.
+macro_rules! cfg_unix_rawfd_waker {
+    ($($item:item)*) => {
+        $(
+            #[cfg(not(all(
+                not(mio_unsupported_force_waker_pipe),
+                any(
+                    target_os = "freebsd",
+                    target_os = "ios",
+                    target_os = "macos",
+                    target_os = "tvos",
+                    target_os = "watchos",
+                )
+            )))]
+        )*
+    }
+}
+
 macro_rules! cfg_selector_has_fd {
     ($($item:item)*) => {
         $(

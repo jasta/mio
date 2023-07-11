@@ -15,14 +15,12 @@ macro_rules! syscall {
 
 cfg_os_poll! {
     mod selector;
-    pub(crate) use self::selector::{event, Event, Events, Selector};
-    pub(crate) use self::selector::WakerRegistrar;
+    pub(crate) use self::selector::{event, Event, Events, Selector, Waker};
 
     mod sourcefd;
     pub use self::sourcefd::SourceFd;
 
-    mod waker;
-    pub(crate) use self::waker::Waker;
+    mod waker_driver;
 
     cfg_net! {
         mod net;

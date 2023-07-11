@@ -1,5 +1,4 @@
 mod adapters;
-pub(crate) use self::adapters::WakerRegistrar;
 
 cfg_io_source! {
     pub(crate) use self::adapters::IoSourceState;
@@ -7,17 +6,17 @@ cfg_io_source! {
 
 cfg_epoll_selector! {
     mod epoll;
-    pub(crate) use self::epoll::{event, Event, Events, Selector};
+    pub(crate) use self::epoll::{event, Event, Events, Selector, Waker};
 }
 
 cfg_poll_selector! {
     mod poll;
-    pub(crate) use self::poll::{event, Event, Events, Selector};
+    pub(crate) use self::poll::{event, Event, Events, Selector, Waker};
 }
 
 cfg_kqueue_selector! {
     mod kqueue;
-    pub(crate) use self::kqueue::{event, Event, Events, Selector};
+    pub(crate) use self::kqueue::{event, Event, Events, Selector, Waker};
 }
 
 /// Lowest file descriptor used in `Selector::try_clone`.

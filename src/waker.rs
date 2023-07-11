@@ -81,10 +81,11 @@ pub struct Waker {
 
 impl Waker {
     /// Create a new `Waker`.
-    pub fn new(registry: &Registry, token: Token) -> io::Result<Waker> {
+    pub fn new(registry: &Registry, token: Token) -> io::Result<Self> {
         #[cfg(debug_assertions)]
         registry.register_waker();
-        sys::Waker::new(registry.selector(), token).map(|inner| Waker { inner })
+        let waker = registry.selector().install_waker(token)?;
+        Ok(Self { inner: waker })
     }
 
     /// Wake up the [`Poll`] associated with this `Waker`.

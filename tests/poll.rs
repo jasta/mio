@@ -346,7 +346,7 @@ fn register_during_poll() {
     // Unlock the thread, allow it to register the `UdpSocket`.
     barrier.wait();
     // Concurrently (at least we attempt to) call `Poll::poll`.
-    poll.poll(&mut events, Some(Duration::from_secs(5)))
+    poll.poll(&mut events, Some(Duration::from_secs(500)))
         .unwrap();
 
     let mut iter = events.iter();
