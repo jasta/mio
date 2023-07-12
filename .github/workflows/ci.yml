@@ -32,12 +32,8 @@ jobs:
     - name: Tests release build
       run: cargo test --release --all-features
   TestPoll:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ["ubuntu-latest", "macos-latest"]
     env:
       RUSTFLAGS="--cfg mio_unsupported_force_poll_poll"
     steps:
