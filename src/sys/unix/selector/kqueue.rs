@@ -218,6 +218,10 @@ impl Selector {
     pub fn register_waker(&self) -> bool {
         self.has_waker.swap(true, Ordering::AcqRel)
     }
+
+    pub(crate) fn install_waker(&self, token: Token) -> io::Result<Waker> {
+        Waker::install(self, token)
+    }
 }
 
 #[derive(Debug)]
