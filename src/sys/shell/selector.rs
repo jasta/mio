@@ -2,6 +2,8 @@ use std::io;
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::Duration;
+use crate::sys::Waker;
+use crate::Token;
 
 pub type Event = usize;
 
@@ -21,6 +23,10 @@ impl Selector {
 
     #[cfg(all(debug_assertions, not(target_os = "wasi")))]
     pub fn register_waker(&self) -> bool {
+        os_required!();
+    }
+
+    pub(crate) fn install_waker(&self, _token: Token) -> io::Result<Waker> {
         os_required!();
     }
 }
