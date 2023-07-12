@@ -36,8 +36,6 @@ pub struct Selector {
 
 impl Selector {
     pub fn new() -> io::Result<Selector> {
-        println!("DO NOT COMMIT: {}", LOWEST_FD);
-
         let state = SelectorState::new()?;
 
         Ok(Selector {
@@ -48,6 +46,9 @@ impl Selector {
     }
 
     pub fn try_clone(&self) -> io::Result<Selector> {
+        // Just to keep the compiler happy :)
+        let _ = LOWEST_FD;
+
         let state = self.state.clone();
 
         Ok(Selector {
