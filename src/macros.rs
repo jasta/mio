@@ -99,15 +99,18 @@ macro_rules! cfg_poll_selector {
 macro_rules! cfg_kqueue_selector {
     ($($item:item)*) => {
         $(
-            #[cfg(any(
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "ios",
-                target_os = "macos",
-                target_os = "netbsd",
-                target_os = "openbsd",
-                target_os = "tvos",
-                target_os = "watchos",
+            #[cfg(all(
+                not(mio_unsupported_force_poll_poll),
+                any(
+                    target_os = "dragonfly",
+                    target_os = "freebsd",
+                    target_os = "ios",
+                    target_os = "macos",
+                    target_os = "netbsd",
+                    target_os = "openbsd",
+                    target_os = "tvos",
+                    target_os = "watchos",
+                )
             ))]
             $item
         )*
@@ -119,6 +122,7 @@ macro_rules! cfg_unix_kevent_waker {
     ($($item:item)*) => {
         $(
             #[cfg(all(
+                not(mio_unsupported_force_poll_poll),
                 not(mio_unsupported_force_waker_pipe),
                 any(
                     target_os = "freebsd",
@@ -134,12 +138,13 @@ macro_rules! cfg_unix_kevent_waker {
 }
 
 /// The current platform uses a rawfd-based waker (eventfd, pipe, etc).  This is
-/// the opposite of kevent.
+/// the opposite of kevent (literally it's the same condition as above but negated).
 macro_rules! cfg_unix_rawfd_waker {
     ($($item:item)*) => {
         $(
             #[cfg(not(all(
                 not(mio_unsupported_force_waker_pipe),
+                not(mio_unsupported_force_poll_poll),
                 any(
                     target_os = "freebsd",
                     target_os = "ios",

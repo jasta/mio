@@ -457,7 +457,12 @@ impl RegistrationRecord {
     }
 }
 
-const READ_EVENTS: libc::c_short = libc::POLLIN | libc::POLLRDHUP;
+#[cfg(target_os = "linux")]
+const POLLRDHUP: libc::c_short = libc::POLLRDHUP;
+#[cfg(not(target_os = "linux"))]
+const POLLRDHUP: libc::c_short = 0;
+
+const READ_EVENTS: libc::c_short = libc::POLLIN | POLLRDHUP;
 
 const WRITE_EVENTS: libc::c_short = libc::POLLOUT;
 
@@ -526,6 +531,7 @@ pub mod event {
     use crate::sys::Event;
     use crate::Token;
     use std::fmt;
+    use crate::sys::unix::selector::poll::POLLRDHUP;
 
     pub fn token(event: &Event) -> Token {
         event.token
@@ -547,7 +553,7 @@ pub mod event {
         // Both halves of the socket have closed
         (event.events & libc::POLLHUP) != 0
             // Socket has received FIN or called shutdown(SHUT_RD)
-            || (event.events & libc::POLLRDHUP) != 0
+            || (event.events & POLLRDHUP) != 0
     }
 
     pub fn is_write_closed(event: &Event) -> bool {
@@ -590,7 +596,6 @@ pub mod event {
             libc::POLLWRBAND,
             libc::POLLERR,
             libc::POLLHUP,
-            libc::POLLRDHUP,
         );
 
         // Can't reference fields in packed structures.
