@@ -72,63 +72,6 @@ mod eventfd {
 ))]
 pub use self::eventfd::WakerDriver;
 
-cfg_unix_kevent_waker! {
-mod kqueue {
-    use crate::sys::Selector;
-    use crate::Token;
-
-    use std::io;
-
-    /// WakerDriver backed by kqueue user space notifications (`EVFILT_USER`).
-    #[derive(Debug)]
-    pub struct WakerDriver {
-        token: Token,
-    }
-
-    impl WakerDriver {
-        pub fn new(kq: RawFd, token: Token) -> io::Result<WakerDriver> {
-            // First attempt to accept user space notifications.
-            let mut kevent = kevent!(
-                0,
-                libc::EVFILT_USER,
-                libc::EV_ADD | libc::EV_CLEAR | libc::EV_RECEIPT,
-                token.0
-            );
-
-            syscall!(kevent(kq, &kevent, 1, &mut kevent, 1, ptr::null())).and_then(|_| {
-                if (kevent.flags & libc::EV_ERROR) != 0 && kevent.data != 0 {
-                    Err(io::Error::from_raw_os_error(kevent.data as i32))
-                } else {
-                    Ok(())
-                }
-            })?;
-
-            Ok(WakerDriver { token })
-        }
-
-        pub fn wake(&self) -> io::Result<()> {
-            let mut kevent = kevent!(
-                0,
-                libc::EVFILT_USER,
-                libc::EV_ADD | libc::EV_RECEIPT,
-                token.0
-            );
-            kevent.fflags = libc::NOTE_TRIGGER;
-
-            syscall!(kevent(self.kq, &kevent, 1, &mut kevent, 1, ptr::null())).and_then(|_| {
-                if (kevent.flags & libc::EV_ERROR) != 0 && kevent.data != 0 {
-                    Err(io::Error::from_raw_os_error(kevent.data as i32))
-                } else {
-                    Ok(())
-                }
-            })
-        }
-    }
-}
-
-pub use self::kqueue::WakerDriver;
-}
-
 #[cfg(any(
     mio_unsupported_force_waker_pipe,
     target_os = "dragonfly",

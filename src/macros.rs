@@ -148,6 +148,7 @@ macro_rules! cfg_unix_rawfd_waker {
                     target_os = "watchos",
                 )
             )))]
+            $item
         )*
     }
 }

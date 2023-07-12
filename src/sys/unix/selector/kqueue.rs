@@ -6,7 +6,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{cmp, io, ptr, slice};
-use crate::sys::unix::waker_driver::WakerDriver;
 
 /// Unique id for use as `SelectorId`.
 #[cfg(debug_assertions)]
@@ -224,28 +223,72 @@ impl Selector {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct Waker {
-    driver: WakerDriver,
-}
+cfg_unix_rawfd_waker! {
+    use crate::sys::unix::waker_driver::WakerDriver;
 
-impl Waker {
-    cfg_unix_kevent_waker! {
-        pub fn install(selector: &Selector, token: Token) -> io::Result<Self> {
-            let driver = WakerDriver::new(selector.kq, token)?;
-            Ok(Waker { driver })
-        }
+    #[derive(Debug)]
+    pub(crate) struct Waker {
+        driver: WakerDriver,
     }
 
-    cfg_unix_rawfd_waker! {
+    impl Waker {
         pub fn install(selector: &Selector, token: Token) -> io::Result<Self> {
             let driver = WakerDriver::new()?;
             Ok(Waker { driver })
         }
+
+        pub fn wake(&self) -> io::Result<()> {
+            self.driver.wake()
+        }
+    }
+}
+
+cfg_unix_kevent_waker! {
+    #[derive(Debug)]
+    pub(crate) struct Waker {
+        kq: RawFd,
+        token: Token,
     }
 
-    pub fn wake(&self) -> io::Result<()> {
-        self.driver.wake()
+    impl Waker {
+        pub fn install(selector: &Selector, token: Token) -> io::Result<Self> {
+            // First attempt to accept user space notifications.
+            let mut kevent = kevent!(
+                0,
+                libc::EVFILT_USER,
+                libc::EV_ADD | libc::EV_CLEAR | libc::EV_RECEIPT,
+                token.0
+            );
+
+            let kq = selector.kq;
+            syscall!(kevent(kq, &kevent, 1, &mut kevent, 1, ptr::null())).and_then(|_| {
+                if (kevent.flags & libc::EV_ERROR) != 0 && kevent.data != 0 {
+                    Err(io::Error::from_raw_os_error(kevent.data as i32))
+                } else {
+                    Ok(())
+                }
+            })?;
+
+            Ok(Waker { kq, token })
+        }
+
+        pub fn wake(&self) -> io::Result<()> {
+            let mut kevent = kevent!(
+                0,
+                libc::EVFILT_USER,
+                libc::EV_ADD | libc::EV_RECEIPT,
+                self.token.0
+            );
+            kevent.fflags = libc::NOTE_TRIGGER;
+
+            syscall!(kevent(self.kq, &kevent, 1, &mut kevent, 1, ptr::null())).and_then(|_| {
+                if (kevent.flags & libc::EV_ERROR) != 0 && kevent.data != 0 {
+                    Err(io::Error::from_raw_os_error(kevent.data as i32))
+                } else {
+                    Ok(())
+                }
+            })
+        }
     }
 }
 
