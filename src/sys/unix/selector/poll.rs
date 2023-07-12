@@ -66,6 +66,7 @@ impl Selector {
         self.state.register(fd, token, interests)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn register_internal(&self, fd: RawFd, token: Token, interests: Interest) -> io::Result<Arc<RegistrationRecord>> {
         self.state.register_internal(fd, token, interests)
     }
@@ -146,6 +147,7 @@ struct SelectorState {
 
     /// This selectors id.
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     id: usize,
 }
 
@@ -452,6 +454,7 @@ impl RegistrationRecord {
         self.is_unregistered.store(true, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)]
     pub fn is_registered(&self) -> bool {
         !self.is_unregistered.load(Ordering::Relaxed)
     }

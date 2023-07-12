@@ -1,6 +1,10 @@
 #[cfg(all(
     not(mio_unsupported_force_waker_pipe),
-    any(target_os = "linux", target_os = "android")
+    any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "espidf"
+    )
 ))]
 mod eventfd {
     use std::fs::File;
@@ -27,7 +31,10 @@ mod eventfd {
 
     impl WakerDriver {
         pub fn new() -> io::Result<WakerDriver> {
+            #[cfg(not(target_os = "espidf"))]
             let fd = syscall!(eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK))?;
+            #[cfg(target_os = "espidf")]
+            let fd = syscall!(eventfd(0, 0))?;
             let file = unsafe { File::from_raw_fd(fd) };
 
             Ok(WakerDriver { fd: file })
@@ -68,7 +75,11 @@ mod eventfd {
 
 #[cfg(all(
     not(mio_unsupported_force_waker_pipe),
-    any(target_os = "linux", target_os = "android")
+    any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "espidf"
+    )
 ))]
 pub use self::eventfd::WakerDriver;
 
